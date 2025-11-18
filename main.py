@@ -165,21 +165,44 @@ async def handle_deep_research(request: DeepResearchRequest):
     ## 1. 📋 조사 계획
     ## 2. 🔍 주요 발견
     ## 3. 💡 결론
-    ## 📚 출처
     """
 
     try:
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
-
         response = client.models.generate_content(
             model='gemini-2.5-pro',
             contents=prompt,
             config=types.GenerateContentConfig(
-                tools=[grounding_tool],
-                response_modalities=["TEXT"]
+                tools=[grounding_tool]
             )
         )
-        return {"status": "success", "report": response.text}
+        
+        report_text = response.text
+        
+        sources_text = "\n\n## 📚 참고 자료 (Sources)\n"
+        
+        if (response.candidates and 
+            response.candidates[0].grounding_metadata and 
+            response.candidates[0].grounding_metadata.grounding_chunks):
+            
+            chunks = response.candidates[0].grounding_metadata.grounding_chunks
+            
+            seen_urls = set()
+            
+            for i, chunk in enumerate(chunks, 1):
+                if chunk.web:
+                    title = chunk.web.title
+                    url = chunk.web.uri
+                    
+                    if url not in seen_urls:
+                        sources_text += f"{i}. [{title}]({url})\n"
+                        seen_urls.add(url)
+        else:
+            sources_text += "(참고한 웹 소스가 없거나 표시할 수 없습니다.)"
+
+        final_report = report_text + sources_text
+        
+        return {"status": "success", "report": final_report}
 
     except Exception as e:
         print(f"Deep Research Error: {e}")
