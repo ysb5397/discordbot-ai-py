@@ -147,7 +147,7 @@ async def check_operation(operation_name: str):
         return resp.json()
 
 @app.post("/deep-research")
-async def handle_deep_research(request: DeepResearchRequest):
+def handle_deep_research(request: DeepResearchRequest):
     prompt = f"""
     You are a professional 'Deep Research Agent'.
     Your goal is to conduct a comprehensive investigation on the user's query using Google Search.
