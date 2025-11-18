@@ -173,7 +173,8 @@ def handle_deep_research(request: DeepResearchRequest):
             model='gemini-2.5-pro',
             contents=prompt,
             config=types.GenerateContentConfig(
-                tools=[grounding_tool]
+                tools=[grounding_tool],
+                response_modalities=["TEXT"]
             )
         )
         
@@ -186,12 +187,11 @@ def handle_deep_research(request: DeepResearchRequest):
             response.candidates[0].grounding_metadata.grounding_chunks):
             
             chunks = response.candidates[0].grounding_metadata.grounding_chunks
-            
             seen_urls = set()
             
             for i, chunk in enumerate(chunks, 1):
-                if chunk.web:
-                    title = chunk.web.title
+                if chunk.web and chunk.web.uri:
+                    title = chunk.web.title or "제목 없음"
                     url = chunk.web.uri
                     
                     if url not in seen_urls:
