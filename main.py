@@ -20,6 +20,11 @@ genai.configure(api_key=GEMINI_API_KEY)
 flash_model = genai.GenerativeModel('gemini-2.5-flash')
 pro_model = genai.GenerativeModel('gemini-2.5-pro')
 
+research_model = genai.GenerativeModel(
+    'gemini-2.5-pro',
+    tools='google_search_retrieval' 
+)
+
 app = FastAPI()
 
 # --- 데이터 모델 정의 (Pydantic) ---
@@ -39,6 +44,9 @@ class DescriptionRequest(BaseModel):
 
 class VideoRequest(BaseModel):
     prompt: str
+
+class DeepResearchRequest(BaseModel):
+    query: str
 
 async def generate_image_python(prompt: str, count: int = 1):
     request_body = {
@@ -171,7 +179,6 @@ async def handle_generate_video(request: VideoRequest):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-# 상태 확인용 엔드포인트
 @app.get("/check-operation/{operation_name:path}")
 async def check_operation(operation_name: str):
     url = f"{VEO_BASE_URL}/{operation_name}"
@@ -179,3 +186,44 @@ async def check_operation(operation_name: str):
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, headers=headers)
         return resp.json()
+    
+@app.post("/deep-research")
+async def handle_deep_research(request: DeepResearchRequest):
+    prompt = f"""
+    You are a professional 'Deep Research Agent'.
+    Your goal is to conduct a comprehensive investigation on the user's query using Google Search.
+
+    [User Query]
+    {request.query}
+
+    [Instructions]
+    1. **Plan**: First, establish a search strategy to understand the core of the query.
+    2. **Search & Analyze**: Perform Google searches to gather factual, up-to-date information.
+    3. **Report**: Compile a detailed report based on your findings.
+
+    [Output Format]
+    Please write the final response in **Korean** (Markdown format).
+    Structure the report as follows:
+    
+    # 📑 심층 리서치 보고서: [Query Subject]
+    
+    ## 1. 📋 조사 계획 (Plan)
+    (Briefly explain what you searched for and why)
+
+    ## 2. 🔍 주요 발견 (Key Findings)
+    (Detailed facts, statistics, and answers found via Google Search)
+
+    ## 3. 💡 결론 및 요약 (Conclusion)
+    (Summarize the answer)
+
+    ## 📚 출처 (Sources)
+    (List the grounding sources provided by the tool)
+    """
+
+    try:
+        response = research_model.generate_content(prompt)        
+        return {"status": "success", "report": response.text}
+
+    except Exception as e:
+        print(f"Deep Research Error: {e}")
+        return {"status": "error", "message": str(e)}
