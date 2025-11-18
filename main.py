@@ -22,7 +22,7 @@ pro_model = genai.GenerativeModel('gemini-2.5-pro')
 
 research_model = genai.GenerativeModel(
     'gemini-2.5-pro',
-    tools='google_search_retrieval' 
+    tools=[{'google_search': {}}]
 )
 
 app = FastAPI()
