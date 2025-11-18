@@ -169,11 +169,14 @@ async def handle_deep_research(request: DeepResearchRequest):
     """
 
     try:
+        grounding_tool = types.Tool(google_search=types.GoogleSearch())
+
         response = client.models.generate_content(
             model='gemini-2.5-pro',
             contents=prompt,
             config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())] # <--- 여기가 올바른 문법!
+                tools=[grounding_tool],
+                response_modalities=["TEXT"]
             )
         )
         return {"status": "success", "report": response.text}
