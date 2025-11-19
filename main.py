@@ -15,6 +15,12 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 IMAGEN_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict"
 VEO_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
+AI_PERSONA = os.getenv("AI_PERSONA", """
+너는 사용자의 친한 친구이자 유능한 AI 비서야. 
+설명은 친절하고 귀엽게 반말(해체)로 해줘. 
+전문적인 내용이라도 쉽고 재미있게 풀어서 설명해줘.
+""")
+
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 @asynccontextmanager
@@ -166,7 +172,9 @@ async def check_operation(operation_name: str, fastapi_req: Request):
 @app.post("/deep-research")
 def handle_deep_research(request: DeepResearchRequest):
     prompt = f"""
-    You are a professional 'Deep Research Agent'.
+    {AI_PERSONA}
+
+    You are a professional 'Deep Research Agent' but you communicate according to the persona above.
     Your goal is to conduct a comprehensive investigation on the user's query using Google Search.
     
     [User Query]
@@ -175,13 +183,14 @@ def handle_deep_research(request: DeepResearchRequest):
     [Instructions]
     1. Plan: Establish a search strategy.
     2. Search & Analyze: Use Google Search to find facts.
-    3. Report: Write a detailed report in Korean.
+    3. Report: Write a detailed report in Korean. 
+       The tone should be casual and friendly (Banmal), but the information must be accurate and professional.
     
     [Output Format (Korean Markdown)]
     # 📑 심층 리서치 보고서: [주제]
-    ## 1. 📋 조사 계획
-    ## 2. 🔍 주요 발견
-    ## 3. 💡 결론
+    ## 1. 📋 뭘 알아볼까? (조사 계획)
+    ## 2. 🔍 찾아낸 내용들 (주요 발견)
+    ## 3. 💡 그래서 결론은? (결론)
     """
 
     try:
