@@ -2,7 +2,8 @@
 import os
 import json
 import httpx
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from google import genai
@@ -16,7 +17,17 @@ VEO_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("INFO:    Shared HTTP Client starting...")
+    
+    app.state.http_client = httpx.AsyncClient(timeout=120.0)
+    yield
+    
+    await app.state.http_client.aclose()
+    print("INFO:    Shared HTTP Client closed.")
+
+app = FastAPI(lifespan=lifespan)
 
 class ImageRequest(BaseModel):
     prompt: str
@@ -38,7 +49,7 @@ class VideoRequest(BaseModel):
 class DeepResearchRequest(BaseModel):
     query: str
 
-async def generate_image_python(prompt: str, count: int = 1):
+async def generate_image_python(prompt: str, count: int, http_client: httpx.AsyncClient):
     request_body = {
         "instances": [{"prompt": prompt}],
         "parameters": {"sampleCount": count}
@@ -47,23 +58,24 @@ async def generate_image_python(prompt: str, count: int = 1):
         "Content-Type": "application/json",
         "x-goog-api-key": GEMINI_API_KEY
     }
-    async with httpx.AsyncClient() as client_http:
-        try:
-            response = await client_http.post(IMAGEN_ENDPOINT, json=request_body, headers=headers, timeout=120.0)
-            response.raise_for_status()
-            gemini_response = response.json()
-            predictions = gemini_response.get("predictions", [])
-            if not predictions: raise Exception("AI로부터 유효한 이미지를 생성하지 못했습니다.")
-            base64_images = [p["bytesBase64Encoded"] for p in predictions if p.get("bytesBase64Encoded")]
-            return base64_images
-        except Exception as e:
-            print(f"generate_image_python 예외 발생: {e}")
-            raise e
+
+    response = await http_client.post(IMAGEN_ENDPOINT, json=request_body, headers=headers)
+    response.raise_for_status()
+    
+    gemini_response = response.json()
+    predictions = gemini_response.get("predictions", [])
+    
+    if not predictions: 
+        raise Exception("AI로부터 유효한 이미지를 생성하지 못했습니다.")
+        
+    base64_images = [p["bytesBase64Encoded"] for p in predictions if p.get("bytesBase64Encoded")]
+    return base64_images
 
 @app.post("/generate-image")
-async def handle_generate_image(request: ImageRequest):
+async def handle_generate_image(request: ImageRequest, fastapi_req: Request):
     try:
-        base64_images = await generate_image_python(request.prompt, request.count)
+        http_client = fastapi_req.app.state.http_client
+        base64_images = await generate_image_python(request.prompt, request.count, http_client)
         return {"status": "success", "images": base64_images}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -93,12 +105,13 @@ async def handle_generate_filter(request: FilterRequest):
         return {"status": "error", "message": str(e)}
 
 @app.post("/describe-media")
-async def handle_describe_media(request: DescriptionRequest):
+async def handle_describe_media(request: DescriptionRequest, fastapi_req: Request):
     try:
-        async with httpx.AsyncClient() as http_client:
-            file_resp = await http_client.get(request.url)
-            file_resp.raise_for_status()
-            file_data = file_resp.content
+        http_client = fastapi_req.app.state.http_client
+        
+        file_resp = await http_client.get(request.url)
+        file_resp.raise_for_status()
+        file_data = file_resp.content
 
         file_part = types.Part.from_bytes(data=file_data, mime_type=request.mime_type)
 
@@ -126,25 +139,29 @@ async def handle_describe_media(request: DescriptionRequest):
         return {"description": f"(AI 분석 실패: {request.file_name})"}
 
 @app.post("/generate-video")
-async def handle_generate_video(request: VideoRequest):
+async def handle_generate_video(request: VideoRequest, fastapi_req: Request):
     endpoint = f"{VEO_BASE_URL}/models/veo-3.0-generate-001:predictLongRunning"
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
     body = {"instances": [{"prompt": request.prompt}]}
-    async with httpx.AsyncClient() as http_client:
-        try:
-            resp = await http_client.post(endpoint, json=body, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+    
+    http_client = fastapi_req.app.state.http_client
+
+    try:
+        resp = await http_client.post(endpoint, json=body, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/check-operation/{operation_name:path}")
-async def check_operation(operation_name: str):
+async def check_operation(operation_name: str, fastapi_req: Request):
     url = f"{VEO_BASE_URL}/{operation_name}"
     headers = {"x-goog-api-key": GEMINI_API_KEY}
-    async with httpx.AsyncClient() as http_client:
-        resp = await http_client.get(url, headers=headers)
-        return resp.json()
+    
+    http_client = fastapi_req.app.state.http_client
+
+    resp = await http_client.get(url, headers=headers)
+    return resp.json()
 
 @app.post("/deep-research")
 def handle_deep_research(request: DeepResearchRequest):
