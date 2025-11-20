@@ -12,7 +12,7 @@ from google.genai import types
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-IMAGEN_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict"
+IMAGEN_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-ultra-generate-001:predict"
 VEO_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 AI_PERSONA = os.getenv("AI_PERSONA", """
