@@ -37,7 +37,10 @@ app = FastAPI(lifespan=lifespan)
 
 class ImageRequest(BaseModel):
     prompt: str
-    count: int = 1
+    aspectRatio: str = "1:1"
+    resolution: str = "1K"
+    referenceImageUrl: str | None = None
+    mimeType: str | None = None
 
 class FilterRequest(BaseModel):
     query: str
@@ -55,33 +58,63 @@ class VideoRequest(BaseModel):
 class DeepResearchRequest(BaseModel):
     query: str
 
-async def generate_image_python(prompt: str, count: int, http_client: httpx.AsyncClient):
-    request_body = {
-        "instances": [{"prompt": prompt}],
-        "parameters": {"sampleCount": count}
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY
-    }
+async def generate_image_python(request: ImageRequest, http_client: httpx.AsyncClient):
+    contents = [request.prompt]
+    
+    if request.referenceImageUrl:
+        try:
+            print(f"Downloading reference image: {request.referenceImageUrl}")
+            img_resp = await http_client.get(request.referenceImageUrl)
+            img_resp.raise_for_status()
+            
+            image_bytes = io.BytesIO(img_resp.content)
+            pil_image = Image.open(image_bytes)
+            contents.append(pil_image)
+        except Exception as e:
+            print(f"Failed to download/process reference image: {e}")
 
-    response = await http_client.post(IMAGEN_ENDPOINT, json=request_body, headers=headers)
-    response.raise_for_status()
-    
-    gemini_response = response.json()
-    predictions = gemini_response.get("predictions", [])
-    
-    if not predictions: 
-        raise Exception("AI로부터 유효한 이미지를 생성하지 못했습니다.")
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.0-pro-image-preview",
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_modalities=['IMAGE'],
+                image_config=types.ImageConfig(
+                    aspect_ratio=request.aspectRatio,
+                    image_size=request.resolution
+                ),
+            )
+        )
+
+        base64_images = []
         
-    base64_images = [p["bytesBase64Encoded"] for p in predictions if p.get("bytesBase64Encoded")]
-    return base64_images
+        if response.parts:
+            for part in response.parts:
+                if part.inline_data:
+                     base64_images.append(part.inline_data.data)
+                elif hasattr(part, 'as_image'):
+                     img = part.as_image()
+                     buffered = io.BytesIO()
+                     img.save(buffered, format="PNG")
+                     import base64
+                     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                     base64_images.append(img_str)
+
+        if not base64_images:
+            raise Exception("AI가 이미지를 생성하지 않았거나 응답 형식이 다릅니다.")
+
+        return base64_images
+
+    except Exception as e:
+        print(f"GenAI Image Generation Error: {e}")
+        raise e
 
 @app.post("/generate-image")
 async def handle_generate_image(request: ImageRequest, fastapi_req: Request):
     try:
         http_client = fastapi_req.app.state.http_client
-        base64_images = await generate_image_python(request.prompt, request.count, http_client)
+        
+        base64_images = await generate_image_python(request, http_client)
         return {"status": "success", "images": base64_images}
     except Exception as e:
         return {"status": "error", "message": str(e)}
