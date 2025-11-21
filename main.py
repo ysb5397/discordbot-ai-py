@@ -76,7 +76,7 @@ async def generate_image_python(request: ImageRequest, http_client: httpx.AsyncC
             print(f"Failed to download/process reference image: {e}")
 
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model="gemini-3-pro-image-preview",
             contents=contents,
             config=types.GenerateContentConfig(
