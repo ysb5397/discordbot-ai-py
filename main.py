@@ -210,64 +210,57 @@ async def check_operation(operation_name: str, fastapi_req: Request):
 
 @app.post("/deep-research")
 def handle_deep_research(request: DeepResearchRequest):
+    # 꼼꼼한 분석가 페르소나 주입 (겉은 귀엽게, 속은 치밀하게)
     prompt = f"""
     {AI_PERSONA}
+    
+    하지만 이번 작업에서 너는 **'세계 최고의 심층 분석가'** 모드로 작동해야 해.
+    사용자의 질문에 대해 대충 대답하지 말고, 집요하게 파고들어서 팩트를 검증해 줘.
 
-    You are a professional 'Deep Research Agent' but you communicate according to the persona above.
-    Your goal is to conduct a comprehensive investigation on the user's query using Google Search.
-    
-    [User Query]
+    [사용자 요청]
     {request.query}
-    
-    [Instructions]
-    1. Plan: Establish a search strategy.
-    2. Search & Analyze: Use Google Search to find facts.
-    3. Report: Write a detailed report in Korean. 
-       The tone should be casual and friendly (Banmal), but the information must be accurate and professional.
-    
-    [Output Format (Korean Markdown)]
+
+    [생각의 사슬 (Chain of Thought) - 이 순서를 반드시 지켜!]
+    1. **Plan**: 무엇을 검색해야 완벽한 답을 얻을 수 있을지 전략을 세운다.
+    2. **Search & Analyze**: Google Search를 통해 정보를 수집하고 분석한다.
+    3. **Critique (비판적 재검토)**: 수집한 정보에 부족한 점은 없는지, 편향되지는 않았는지 스스로 반문하고 보완한다.
+    4. **Drafting**: 수집된 정보를 바탕으로 방대한 양의 '상세 보고서'와 핵심만 요약한 '브리핑'을 작성한다.
+
+    [최종 출력 형식 (Strict Output Format)]
+    분석이 끝나면 반드시 아래 XML 태그 형식을 엄격하게 지켜서 답변해. 
+    다른 잡담은 태그 밖에 쓰지 마.
+
+    <REPORT_FILE>
     # 📑 심층 리서치 보고서: [주제]
-    ## 1. 📋 뭘 알아볼까? (조사 계획)
-    ## 2. 🔍 찾아낸 내용들 (주요 발견)
-    ## 3. 💡 그래서 결론은? (결론)
+    (여기에 마크다운(Markdown) 형식으로 아주 상세하게 작성해. 논문 수준으로 깊이 있게. 
+    출처(Source) 링크도 꼼꼼하게 달아줘. 길이 제한 없이 마음껏 써도 돼.)
+    </REPORT_FILE>
+
+    <DISCORD_EMBED>
+    (여기에 디스코드 채팅창에 보여줄 내용을 작성해.)
+    - **분량**: 300자~500자 이내.
+    - **말투**: 너의 원래 페르소나(귀여운 반말)를 유지해. 이모지는 방해되지 않을만큼 적당히 활용!
+    - **내용**: 
+      1. 조사를 통해 알아낸 가장 충격적이거나 중요한 3가지 포인트 (글머리 기호)
+      2. 너의 한 줄 총평
+      3. "자세한 내용은 위에 첨부한 파일 읽어봐! 📄" 라는 멘트로 마무리.
+    </DISCORD_EMBED>
     """
 
     try:
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
+        
         response = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model='gemini-2.5-pro', 
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[grounding_tool],
-                response_modalities=["TEXT"]
+                response_modalities=["TEXT"],
+                temperature=0.4
             )
         )
         
-        report_text = response.text
-        
-        sources_text = "\n\n## 📚 참고 자료 (Sources)\n"
-        
-        if (response.candidates and 
-            response.candidates[0].grounding_metadata and 
-            response.candidates[0].grounding_metadata.grounding_chunks):
-            
-            chunks = response.candidates[0].grounding_metadata.grounding_chunks
-            seen_urls = set()
-            
-            for i, chunk in enumerate(chunks, 1):
-                if chunk.web and chunk.web.uri:
-                    title = chunk.web.title or "제목 없음"
-                    url = chunk.web.uri
-                    
-                    if url not in seen_urls:
-                        sources_text += f"{i}. [{title}]({url})\n"
-                        seen_urls.add(url)
-        else:
-            sources_text += "(참고한 웹 소스가 없거나 표시할 수 없습니다.)"
-
-        final_report = report_text + sources_text
-        
-        return {"status": "success", "report": final_report}
+        return {"status": "success", "report": response.text}
 
     except Exception as e:
         print(f"Deep Research Error: {e}")
