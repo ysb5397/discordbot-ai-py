@@ -75,7 +75,7 @@ async def generate_image_python(request: ImageRequest, http_client: httpx.AsyncC
 
     try:
         response = client.models.generate_content(
-            model="gemini-3.0-pro-image-preview",
+            model="gemini-3-pro-image-preview",
             contents=contents,
             config=types.GenerateContentConfig(
                 response_modalities=['IMAGE'],
