@@ -60,6 +60,9 @@ class VideoRequest(BaseModel):
 class DeepResearchRequest(BaseModel):
     query: str
 
+class CodeReviewRequest(BaseModel):
+    diff: str
+
 async def generate_image_python(request: ImageRequest, http_client: httpx.AsyncClient):
     contents = [request.prompt]
     
@@ -264,6 +267,65 @@ def handle_deep_research(request: DeepResearchRequest):
 
     except Exception as e:
         print(f"Deep Research Error: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/code-review")
+def handle_code_review(request: CodeReviewRequest):
+    prompt = f"""
+    {AI_PERSONA}
+    
+    이번엔 **'Google 수석 엔지니어 겸 보안 전문가'** 모드야.
+    아래 제공된 [Git Diff]는 지난 일주일 동안 변경된 서버 코드야. 
+    이 변경 사항들을 아주 꼼꼼하게 점검해줘.
+
+    [Git Diff (이번 주 변경 사항)]
+    {request.diff}
+
+    [생각의 사슬 (Chain of Thought)]
+    1. **Scan**: 변경된 파일과 로직의 의도를 먼저 파악한다.
+    2. **Deep Dive**: 
+       - 🐛 버그 가능성: 엣지 케이스(Edge case) 처리 미흡, 타입 에러 등.
+       - 🛡️ 보안 취약점: SQL Injection, XSS, 민감 정보 노출 등.
+       - ⚡ 성능 이슈: 불필요한 루프, 메모리 누수, 비효율적인 DB 쿼리.
+       - 🧹 가독성: 변수명, 함수 구조, 중복 코드.
+    3. **Critique**: "이게 최선인가?" 스스로 반문하며 더 나은 대안(Best Practice)을 생각한다.
+    4. **Drafting**: 파일용 '상세 리포트'와 디스코드용 '요약본'을 작성한다.
+
+    [최종 출력 형식 (Strict Output Format)]
+    반드시 아래 태그 형식을 지켜서 출력해.
+
+    <REPORT_FILE>
+    # 📅 주간 코드 리뷰 리포트
+    ## 1. 총평
+    ## 2. 주요 변경 사항 분석
+    ## 3. 🚨 발견된 문제점 및 개선 제안
+    (여기에 코드 블록과 함께 아주 상세하게 작성해. 마크다운 문법 활용.)
+    </REPORT_FILE>
+
+    <DISCORD_EMBED>
+    (디스코드 임베드용 요약. 500자 이내.)
+    - **말투**: 평소의 친근한 말투 유지.
+    - **내용**:
+      1. 이번 주 변경된 파일 개수 및 주요 작업 요약 (한 줄)
+      2. 칭찬할 점 👍 (없으면 생략)
+      3. 고쳐야 할 점 🛠️ (가장 치명적인 것 1~2개만)
+      4. "상세한 건 파일 열어서 확인해! 피드백 반영 부탁해~ 😉"
+    </DISCORD_EMBED>
+    """
+
+    try:
+        # 코드 리뷰는 긴 문맥 처리가 중요하므로 Pro 모델 사용 권장
+        response = client.models.generate_content(
+            model='gemini-2.5-pro',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.2 # 코드는 창의성보다 정확성이 생명! 온도를 낮춤.
+            )
+        )
+        return {"status": "success", "report": response.text}
+
+    except Exception as e:
+        print(f"Code Review Error: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.get("/")
