@@ -2,6 +2,8 @@
 import os
 import json
 import httpx
+import io
+import base64
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
@@ -90,15 +92,19 @@ async def generate_image_python(request: ImageRequest, http_client: httpx.AsyncC
         
         if response.parts:
             for part in response.parts:
-                if part.inline_data:
-                     base64_images.append(part.inline_data.data)
+                if part.inline_data and part.inline_data.data:
+                     raw_bytes = part.inline_data.data
+                     b64_str = base64.b64encode(raw_bytes).decode('utf-8')
+                     base64_images.append(b64_str)
                 elif hasattr(part, 'as_image'):
-                     img = part.as_image()
-                     buffered = io.BytesIO()
-                     img.save(buffered, format="PNG")
-                     import base64
-                     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                     base64_images.append(img_str)
+                     try:
+                         img = part.as_image()
+                         buffered = io.BytesIO()
+                         img.save(buffered, format="PNG")
+                         b64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                         base64_images.append(b64_str)
+                     except Exception as img_err:
+                         print(f"Image conversion error: {img_err}")
 
         if not base64_images:
             raise Exception("AI가 이미지를 생성하지 않았거나 응답 형식이 다릅니다.")
