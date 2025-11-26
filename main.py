@@ -4,16 +4,31 @@ import json
 import httpx
 import io
 import base64
+import asyncio
+import platform
+import matplotlib
+matplotlib.use('Agg') 
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import pandas as pd
+import FinanceDataReader as fdr
+import requests
+import re
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from datetime import datetime, timedelta
 
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
+NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
+
 IMAGEN_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-ultra-generate-001:predict"
 VEO_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -24,6 +39,70 @@ AI_PERSONA = os.getenv("AI_PERSONA", """
 """)
 
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+# --- 헬퍼 함수: 한글 폰트 설정 (차트용) ---
+def get_font_family():
+    system_name = platform.system()
+    if system_name == 'Windows': return 'Malgun Gothic'
+    elif system_name == 'Darwin': return 'AppleGothic'
+    else: return 'NanumGothic' # Dockerfile에 폰트 설치 필요 (없으면 깨짐)
+
+# --- 헬퍼 함수: 네이버 뉴스 검색 ---
+def fetch_naver_news(keyword, display=10):
+    if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
+        return []
+    
+    url = "https://openapi.naver.com/v1/search/news.json"
+    headers = {
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
+    }
+    params = {"query": keyword, "display": display, "sort": "sim"}
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=5)
+        if resp.status_code == 200:
+            items = resp.json().get('items', [])
+            news_list = []
+            for item in items:
+                title = re.sub('<.*?>|&([a-z0-9]+|#[0-9]{1,6}|#x[0-9a-f]{1,6});', '', item['title'])
+                news_list.append(f"- {title} ({item['pubDate'][:16]})")
+            return news_list
+    except Exception as e:
+        print(f"Naver News Error: {e}")
+    return []
+
+# --- 헬퍼 함수: 차트 그리기 (Blocking I/O) ---
+def draw_stock_chart(df, title):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # 폰트 설정
+    plt.rc('font', family=get_font_family())
+    plt.rcParams['axes.unicode_minus'] = False
+
+    ax.plot(df.index, df['Close'], label='Close', color='#333333')
+    
+    # 이동평균선 (데이터가 충분할 때만)
+    if len(df) > 20:
+        df['MA20'] = df['Close'].rolling(window=20).mean()
+        ax.plot(df.index, df['MA20'], label='MA20', color='red', linestyle='--')
+    if len(df) > 60:
+        df['MA60'] = df['Close'].rolling(window=60).mean()
+        ax.plot(df.index, df['MA60'], label='MA60', color='blue', linestyle='--')
+
+    ax.set_title(f"{title} Stock Price", fontsize=15)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend()
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    
+    # 이미지를 메모리 버퍼에 저장
+    buf = io.BytesIO()
+    plt.tight_layout()
+    plt.savefig(buf, format='png', dpi=100)
+    plt.close(fig) # 메모리 해제 중요
+    buf.seek(0)
+    
+    # Base64 인코딩
+    return base64.b64encode(buf.getvalue()).decode('utf-8')
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -62,6 +141,9 @@ class DeepResearchRequest(BaseModel):
 
 class CodeReviewRequest(BaseModel):
     diff: str
+
+class StockAnalyzeRequest(BaseModel):
+    query: str
 
 async def generate_image_python(request: ImageRequest, http_client: httpx.AsyncClient):
     contents = [request.prompt]
@@ -327,6 +409,111 @@ def handle_code_review(request: CodeReviewRequest):
     except Exception as e:
         print(f"Code Review Error: {e}")
         return {"status": "error", "message": str(e)}
+
+@app.post("/analyze-stock")
+async def handle_analyze_stock(request: StockAnalyzeRequest):
+    """
+    1. 사용자의 쿼리("삼성전자")를 티커("005930")로 변환 (AI 이용)
+    2. 주가 데이터 수집 (FinanceDataReader)
+    3. 관련 뉴스 수집 (Naver API or Google Search)
+    4. 차트 이미지 생성
+    5. 종합 리포트 작성 (Gemini)
+    """
+    print(f"Analyze Stock Request: {request.query}")
+    
+    # 1. 티커 심볼 찾기 (AI에게 물어봄)
+    ticker_prompt = f"""
+    사용자가 주식 종목을 찾고 있어. 
+    Query: "{request.query}"
+    
+    가장 적절한 'Yahoo Finance' 또는 'KRX' 기준 티커 심볼(Symbol) 하나만 딱 출력해.
+    - 한국 주식: 숫자 6자리 (예: 005930)
+    - 미국 주식: 알파벳 티커 (예: AAPL, TSLA)
+    - 암호화폐: BTC-USD 등
+    - 설명 없이 오직 코드만 반환해.
+    """
+    try:
+        ticker_resp = await client.aio.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=ticker_prompt
+        )
+        ticker = ticker_resp.text.strip().replace(" ", "")
+        print(f"Detected Ticker: {ticker}")
+    except Exception as e:
+        return {"status": "error", "message": f"티커 찾기 실패: {str(e)}"}
+
+    # 2. 데이터 수집 (Blocking 함수이므로 to_thread 사용)
+    try:
+        # (A) 주가 데이터 (최근 1년)
+        df = await asyncio.to_thread(fdr.DataReader, ticker, "2024-01-01")
+        if df.empty:
+            return {"status": "error", "message": f"데이터를 찾을 수 없어 ({ticker})."}
+        
+        # 최근 데이터 요약 (AI에게 전달용)
+        last_price = df.iloc[-1]['Close']
+        start_price = df.iloc[0]['Close']
+        change_rate = ((last_price - start_price) / start_price) * 100
+        
+        stock_summary = f"""
+        - 종목코드: {ticker}
+        - 현재가: {last_price}
+        - 기간 변동률: {change_rate:.2f}%
+        - 최근 5일 데이터:\n{df.tail(5).to_string()}
+        """
+
+        # (B) 뉴스 데이터 (한국 주식이면 네이버, 아니면 생략 or 구글서치)
+        news_text = ""
+        if ticker.isdigit(): # 한국 주식(숫자 6자리)
+            news_list = await asyncio.to_thread(fetch_naver_news, request.query)
+            news_text = "\n".join(news_list)
+        else:
+            news_text = "(해외 주식은 뉴스 API 연동 필요 - 현재는 차트 위주 분석)"
+
+        # (C) 차트 그리기
+        base64_chart = await asyncio.to_thread(draw_stock_chart, df, request.query)
+
+    except Exception as e:
+        return {"status": "error", "message": f"데이터 처리 중 오류: {str(e)}"}
+
+    # 3. 최종 리포트 작성 (Gemini Pro)
+    report_prompt = f"""
+    {AI_PERSONA}
+    
+    너는 지금부터 유능한 '주식 애널리스트'야.
+    아래 데이터를 바탕으로 투자자를 위한 브리핑을 작성해 줘.
+
+    [종목 정보]
+    {request.query} ({ticker})
+
+    [주가 데이터 요약]
+    {stock_summary}
+
+    [최근 관련 뉴스]
+    {news_text}
+
+    [작성 가이드]
+    1. **현재 상황**: 주가가 상승세인지 하락세인지 직관적으로 설명해.
+    2. **주요 이슈**: 뉴스 내용을 바탕으로 호재/악재를 분석해. (뉴스가 없으면 차트 추세 위주로)
+    3. **투자 의견**: 매수/매도 추천은 직접 하지 말고, "어떤 점을 주의해서 봐야 하는지" 관전 포인트를 짚어줘.
+    4. 차트 이미지는 내가 이미 그렸으니까, 너는 텍스트 설명에 집중해.
+    5. 출력은 Markdown 포맷으로 깔끔하게.
+    """
+
+    try:
+        report_resp = await client.aio.models.generate_content(
+            model='gemini-2.5-pro',
+            contents=report_prompt
+        )
+        report_text = report_resp.text
+    except Exception as e:
+        report_text = f"분석 리포트 생성 실패: {str(e)}"
+
+    return {
+        "status": "success",
+        "ticker": ticker,
+        "report": report_text,
+        "chart_image": base64_chart
+    }
 
 @app.get("/")
 def read_root():
