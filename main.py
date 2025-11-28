@@ -454,7 +454,9 @@ async def handle_analyze_stock(request: StockAnalyzeRequest):
     # 2. 데이터 수집 (Blocking 함수이므로 to_thread 사용)
     try:
         # (A) 주가 데이터 (최근 1년)
-        df = await asyncio.to_thread(fdr.DataReader, ticker, "2024-01-01")
+        start_date = datetime.now() - pd.DateOffset(years=1)
+        start_date_str = start_date.strftime('%Y-%m-%d')
+        df = await asyncio.to_thread(fdr.DataReader, ticker, start_date_str)
         if df.empty:
             return {"status": "error", "message": f"데이터를 찾을 수 없어 ({ticker})."}
         
