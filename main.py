@@ -8,12 +8,11 @@ import asyncio
 import platform
 import matplotlib
 matplotlib.use('Agg') 
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import pandas as pd
 import FinanceDataReader as fdr
 import requests
 import re
+import matplotlib.font_manager as fm
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -22,6 +21,8 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from datetime import datetime, timedelta
+from matplotlib.figure import Figure
+from PIL import Image
 
 load_dotenv()
 
@@ -39,6 +40,11 @@ AI_PERSONA = os.getenv("AI_PERSONA", """
 """)
 
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+def get_font_prop():
+    font_name = get_font_family()
+    # 폰트 경로를 찾거나 시스템 폰트 이름 사용
+    return fm.FontProperties(family=font_name)
 
 # --- 헬퍼 함수: 한글 폰트 설정 (차트용) ---
 def get_font_family():
@@ -73,11 +79,10 @@ def fetch_naver_news(keyword, display=10):
 
 # --- 헬퍼 함수: 차트 그리기 (Blocking I/O) ---
 def draw_stock_chart(df, title):
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig = Figure(figsize=(10, 6))
+    ax = fig.subplots()
     
-    # 폰트 설정
-    plt.rc('font', family=get_font_family())
-    plt.rcParams['axes.unicode_minus'] = False
+    font_prop = get_font_prop()
 
     ax.plot(df.index, df['Close'], label='Close', color='#333333')
     
@@ -89,16 +94,20 @@ def draw_stock_chart(df, title):
         df['MA60'] = df['Close'].rolling(window=60).mean()
         ax.plot(df.index, df['MA60'], label='MA60', color='blue', linestyle='--')
 
-    ax.set_title(f"{title} Stock Price", fontsize=15)
+    ax.set_title(f"{title} Stock Price", fontsize=15, fontproperties=font_prop)
     ax.grid(True, linestyle='--', alpha=0.5)
-    ax.legend()
+    ax.legend(prop=font_prop)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     
+    for label in ax.get_xticklabels() + ax.get_yticklabels():
+        label.set_fontproperties(font_prop)
+
     # 이미지를 메모리 버퍼에 저장
     buf = io.BytesIO()
-    plt.tight_layout()
-    plt.savefig(buf, format='png', dpi=100)
-    plt.close(fig) # 메모리 해제 중요
+    fig.tight_layout()
+    fig.savefig(buf, format='png', dpi=100)
+
+    fig.clear() # Figure 객체 정리
     buf.seek(0)
     
     # Base64 인코딩

@@ -13,6 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. 나머지 모든 소스 코드 복사
 COPY . .
 
-# 5. Uvicorn 서버 실행
+# 5. gunicorn 서버 실행
 # --timeout-keep-alive 300: 연결 유지 시간을 300초(5분)로 설정
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "300"]
+CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:8000", "-k", "uvicorn.workers.UvicornWorker", "--workers", "2", "--max-requests", "1000", "--max-requests-jitter", "50", "--timeout", "120"]
