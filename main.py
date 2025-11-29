@@ -13,6 +13,7 @@ import FinanceDataReader as fdr
 import requests
 import re
 import matplotlib.font_manager as fm
+import matplotlib.dates as mdates
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request

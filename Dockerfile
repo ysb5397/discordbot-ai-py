@@ -6,6 +6,9 @@ FROM python:3.11-slim
 # 2. 작업 폴더 설정
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y fonts-nanum && \
+    rm -rf /var/lib/apt/lists/*
+
 # 3. 라이브러리 목록 복사 및 설치
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
