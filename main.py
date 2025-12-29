@@ -148,6 +148,7 @@ class VideoRequest(BaseModel):
 
 class DeepResearchRequest(BaseModel):
     query: str
+    current_kst_time: str
 
 class CodeReviewRequest(BaseModel):
     diff: str
@@ -313,7 +314,7 @@ def handle_deep_research(request: DeepResearchRequest):
     사용자의 질문에 대해 대충 대답하지 말고, 집요하게 파고들어서 팩트를 검증해 줘.
 
     # 🕒 [Time Context & Constraint] - 중요!
-    - **Current System Time (KST)**: {current_kst_time} 
+    - **Current System Time (KST)**: {request.current_kst_time} 
     - **Instruction**: 
       1. 위 'Current System Time'이 **절대적인 현재 시각**이야. 너의 학습 데이터 기준이나 내부 시계를 무시하고, 무조건 이 시간을 기준으로 과거/현재/미래를 판단해.
       2. 입력된 데이터의 날짜가 'Current System Time'보다 과거이거나 같으면, 절대 미래의 데이터라고 착각하거나 분석을 거부하지 말아줘.
