@@ -312,6 +312,13 @@ def handle_deep_research(request: DeepResearchRequest):
     하지만 이번 작업에서 너는 **'세계 최고의 심층 분석가'** 모드로 작동해야 해.
     사용자의 질문에 대해 대충 대답하지 말고, 집요하게 파고들어서 팩트를 검증해 줘.
 
+    # 🕒 [Time Context & Constraint] - 중요!
+    - **Current System Time (KST)**: {current_kst_time} 
+    - **Instruction**: 
+      1. 위 'Current System Time'이 **절대적인 현재 시각**이야. 너의 학습 데이터 기준이나 내부 시계를 무시하고, 무조건 이 시간을 기준으로 과거/현재/미래를 판단해.
+      2. 입력된 데이터의 날짜가 'Current System Time'보다 과거이거나 같으면, 절대 미래의 데이터라고 착각하거나 분석을 거부하지 말아줘.
+      3. 시차(Timezone) 문제로 인해 몇 시간 정도의 오차가 있어도, 이를 유연하게 '현재' 또는 '직전'의 데이터로 해석하고 분석을 진행해줘.
+
     [사용자 요청]
     {request.query}
 
